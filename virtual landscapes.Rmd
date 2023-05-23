@@ -1,0 +1,320 @@
+---
+title: "Virtual ecosystem service niche examples"
+author: "Dan Richards"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(virtualNicheR)
+require(raster)
+```
+
+## Overview 
+This document provides an explanation and example code for generating virtual ecosystem service niches and applying these niche models to project ecosystem service provision. The code supports the following publication and should be cited as such;
+
+Richards, DR & Lavorel, S (2023). Niche theory improves understanding of associations between ecosystem services. *Accepted*. 
+
+The code makes extensive use of the [`virtualNicheR`](https://github.com/manaakiwhenua/virtualNicheR) package developed by Thomas Etherington and O. Pascal Omondiagbe, please see their 2019 publication for more [information](https://joss.theoj.org/papers/10.21105/joss.01661). 
+
+These examples require the[`virtualNicheR`](https://github.com/manaakiwhenua/virtualNicheR) package so please install it first. We will also use the [`raster`](https://cran.r-project.org/web/packages/raster/index.html) package.
+
+### Fundamental ecosystem service niche
+
+The fundamental niche of an ecosystem service is a function of the socio-environmental variables that determine its provision. We use the virtual species modelling framework provided by Etherington and Omandiagbe (2019) to generate niches for hypothetical ecosystem services.
+
+Using the `virtualNicheR` package, we can define the fundamental niche of an ecosystem service by providing the following information;
+
+- *λ~max~*, the maximum value for ecosystem service provision
+- *µ*, values that give the optimum for each of *n* environmental variables, and
+- *Σ*, the variance-covariance matrix describing the size and orientation of the variation profile for each of *n* environmental variables.
+
+Using the `virtualNicheR` syntax, these attributes are provided as a list of three elements. In the example below, we generate a niche for the hypothetical ecosystem service *S*~1~. We assume that this service is influenced by two socio-environmental variables, *E*~1~ and *E*~2~, and that each of these socio-environmental variables can vary between a value of 0 and 1. 
+
+```{r spp1}
+s1 = list(2.5, matrix(c(0.8, 0.5)), 
+          matrix(data=c(0.05, 0,
+                        0, 0.05), 
+                 nrow=2, ncol=2, byrow=TRUE))
+```
+
+The `fund.niche` function within `virtualNicheR` can predict *S*~1~ values for given socio-environmental variable values.  We can set up a systematic grid of coordinates across the two environmental variables, and predict ecosystem service values across this grid of coordinates, to visualise the ecosystem service niche.
+
+```{r fundniche}
+# Create a grid of points describing all combinations of variation in Socio-environmental variables 1 and 2
+niche.XY <- niche.grid.coords(mins=c(0,0), maxs=c(1,1), nCoords=121)
+
+# Calculate the fundamental niche for Service 1
+fundNiche <- fund.niche(niche.coords = niche.XY, 
+                        species = s1)
+
+# Create a matrix for plotting, using the "raster" package
+fundNicheMatrix = rasterFromXYZ(data.frame(x = niche.XY[,1],
+                                           y = niche.XY[,2],
+                                           z = fundNiche))
+
+# Plot the predicted values for Service 1 across the axes for Socio-environmental variables 1 and 2
+par(mfrow=c(1,2))
+plot(fundNicheMatrix,
+     xlab = "E1", ylab = "E2", legend.args = list(text = 'S1'))
+
+```
+
+### Realised niche
+
+We can also consider cases of two or more ecosystem services that show direct interactions with each other. Interactions between services can be incorporated into niche modelling to calculate the realised niche of both services. Using the `virtualNicheR` package, asymmetric positive and negative interactions can be specified as a square matrix *I*. Below we first specify a second ecosystem service *S*~2~ and then specify an interaction matrix in which each service has a negative impact on the other. Finally, we use the `real.niche` function to predict ecosystem service values across the variation in socio-environmental variables.
+
+```{r intmat}
+# Define the niche of Service 2
+s2 = list(4, matrix(c(0.6, 0.5)), 
+          matrix(data=c(0.05, 0,
+                        0, 0.05), 
+                 nrow=2, ncol=2, byrow=TRUE))
+
+# Interactions matrix
+intmat = matrix(data=c(0.0, -1,
+                       -0.5, 0.0), nrow=2, ncol=2, byrow = TRUE)
+
+# Realised niche estimation for both services
+realNiche <- real.niche(niche.coords = niche.XY, 
+                        community = list(s1, s2),
+                        interactions = intmat)
+
+# Create a matrix for plotting, using the "raster" package
+realNicheMatrix = rasterFromXYZ(data.frame(x = niche.XY[,1],
+                                           y = niche.XY[,2],
+                                           z1 = realNiche[,1],
+                                           z2 = realNiche[,2]))
+
+# Plot the predicted values for Service 1 and Service 2 across the axes for Socio-environmental variables 1 and 2
+par(mfrow=c(1,2))
+plot(realNicheMatrix[[1]],
+     xlab = "E1", ylab = "E2", legend.args = list(text='S1'))
+plot(realNicheMatrix[[2]],
+     xlab = "E1", ylab = "E2", legend.args = list(text='S2'))
+
+
+```
+
+Here we can see that the realised niche of Service 1 has been substanitally altered by the direct negative interaction with Service 2, thus changing the shape of the niche when compared to the fundamental niche. 
+
+## Simulation of virtual landscapes
+
+The paper presents a virtual experiment in which nine pairs of virtual ecosystem services are compared. Here we will provide code to perform similar virtual experiments, and conduct a simplified virtual experiment to compare two pairs of services that vary in their degree of niche overlap. 
+
+First we need to add a function to generate virtual landscapes. For the paper we generated heterogeneous landscapes that were each made up of 50 patches. Each patch had values for the two environmental variables (*E*~1~ and *E*~2~) which each have a range of possible values between zero and one. Environmental values were drawn from a proability surface made up of a random number of bivariate normal distributions ranging between 1 and 4. For each distribution, we randomly generated a mean value between 0.1 and 0.9 for *E*~1~ and *E*~2~, and a variance-covariance matrix in which the variance was 0 and covariance was a random number ranging between 0.001 and 0.15. Each bivariate distribution was then generated assuming a maximum value of 1, and the resulting distributions were overlapped by taking the maximum value across the environmental space. The resulting layer of values indicated the probability that part of the environmental space would be sampled within each landscape. We sampled 50 values from this probability distribution to represent the environmental variable values present at 50 patches across a simulated landscape mosaic. 
+
+Code to conduct this landscape generation is included below;
+
+```{r landscapegenerator}
+
+# Function to generate aspatial virtual landscapes 
+landscapegen<- function(lsize = 50,# size of landscape
+                      gensize = 1){# Number of replicates
+  
+  
+  # Set up possible environmental space across 2 variables varying between 0 and 1
+  niche.XY = niche.grid.coords(mins=c(0,0), maxs=c(1,1), nCoords=121)
+  
+  # Estimate provision of our 2 ecosystem services across the niche space
+  realNiche = real.niche(niche.XY, 
+                         list(s1,s2),
+                         intmat)
+  realNiche1 = matrix(realNiche[,1], nrow=length(unique(niche.XY[,1])), ncol=length(unique(niche.XY[,1])))
+  realNiche2 = matrix(realNiche[,2], nrow=length(unique(niche.XY[,1])), ncol=length(unique(niche.XY[,1])))
+  niche.blank = matrix(realNiche[,2], nrow=length(unique(niche.XY[,1])), ncol=length(unique(niche.XY[,1])))
+  niche.blank[,]<-0
+  
+  # Function for generating the probability surface for which areas of the environmental space to sample
+    pmat<- function(){
+    
+    # Sample a random number of bivariate normal distributions ranging between 1 and 4
+    nmodes <- round(runif(1,1,4),0)
+    
+    
+    rg1<- 
+      exp(runif(1, -6.9, -1.87))
+    rg2 <- 0 
+    
+    # Use the fund.niche function to generate bivariate normal distributions
+    # Set up empty matrix
+     noise<- matrix(fund.niche(niche.XY,
+                              list(1, matrix(c(runif(1, 0.1, 0.9) ,
+                                               runif(1, 0.1, 0.9) )),
+                                   matrix(data=c(rg1, rg2,                                                   
+                                                 rg2, rg1), 
+                                          nrow=2, ncol=2, byrow=TRUE))), ncol = 121)  
+   noise[,]<-0
+   
+   # Repeat for number of bivariate normal distributions
+   for( y in 1:nmodes){
+    
+    rg1<- 
+      exp(runif(1, -6.9, -1.87))
+    rg2 <- 0 
+    
+    noise2<- matrix(fund.niche(niche.XY,
+      list(1, matrix(c(runif(1, 0.1, 0.9) ,
+                       runif(1, 0.1, 0.9) )),
+           matrix(data=c(rg1, rg2,                                                   
+         rg2, rg1), 
+         nrow=2, ncol=2, byrow=TRUE))), ncol = 121)  
+   
+    noise<- max(stack(raster(noise),
+                      raster(noise2)))
+    
+    noise<-as.matrix(noise)
+    
+    }
+
+    # Scale values to between 0 and 1 because this will be used as a probability  surface
+    r.min = min(noise)
+    r.max = max(noise)
+    
+    noise <- ((noise - r.min) / (r.max - r.min)  ) * 1
+    noise<-as.matrix(noise)
+   
+    # Return matrix and the rg1 value used as the covariance value
+    list(noise,rg1)
+  }
+  
+    # Set up empty list to populate with landscapes
+ outlist<- vector(mode= 'list', length = gensize)
+  for(h in 1:gensize){
+  
+    # Simulate probability surface
+  pnm<- pmat()
+  rgX <- pnm[[2]]
+  pnm<- pnm[[1]]
+  
+  # Convert to raster and add all relevant layesr
+  pnm<-raster(pnm)
+  
+  rx<- realNiche1
+  rx[,] <- 1:nrow(rx)/nrow(rx)
+  
+  ry<- realNiche1
+  ry[,] <- 1:ncol(ry)/nrow(ry)
+  ry<-t(ry)
+  
+  pnm<- stack(pnm,
+              raster(realNiche1),
+              raster(realNiche2),
+              raster(ry),
+              raster(rx))
+  
+  # Extract values from raster image for sampling
+  pnm <- getValues(pnm)
+  pnm<- pnm[sample(1:length(pnm[,1]),
+         size = lsize,
+         prob=pnm[,1],
+         replace = T), ]
+  
+  # Name output and assign to list
+  pnm<-as.data.frame(pnm)
+  names(pnm) = c("probability", "s1", "s2", "e1", "e2")
+ outlist[[h]]<- pnm
+  }
+ outlist
+}
+
+t1<- landscapegen()
+
+```
+The resulting list represents a series of simulated landscapes, with each element in the list referring to one landscape. Each element of the list contains a dataframe with five columns, and each row in the column represents one patch in the simulated landscape. Because we ran the function using the default number of simulated landscapes and number of patches per landscape, we have a list containing one element, which is a simulated landscape. The simulated landscape contains 50 patches, so the dataframe `t1[[1]]` contains 50 rows. 
+
+Each column in the simulated landscape dataframe represents a different attribute of the landscape patch;
+
+- `probability` refers to the probability that this part of the socio-environmental variable space would be selected for inclusion in the virtual landscape
+- `s1` and `s2` refer to the predicted provision of ecosystem services *S*~1~ and *S*~2~, respectively, within that patch
+- `e1` and `e2` refer to the values of the socio-environmental variables *E*~1~ and *E*~2~ respectively, present within the patch
+
+From these patch level values we can calculate aggregate values that describe the environmental conditions or ecosystem services provision within the landscape as a whole. For example, `sum(t1[[1]]$s1)` would give us the total production of ecosystem service 1 across the landscape.
+
+## Simple virtual experiment
+
+Now that we have all the tools, let's run a simple virtual experiment. In the code below, we run two simulations, each of 100 landscapes. In the first set of simulations we will use two ecosystem services that have a high niche overlap and no direct interactions, while in the second experiment we will use two ecosystem services with a lower niche overlap and no direct interactions. 
+
+```{r virtual experiment}
+## Experiment 1
+# Define the niche of Service 1
+s1 = list(4, matrix(c(0.6, 0.5)), 
+          matrix(data=c(0.05, 0,
+                        0, 0.05), 
+                 nrow=2, ncol=2, byrow=TRUE))
+# Define the niche of Service 2
+s2 = list(4, matrix(c(0.7, 0.5)), 
+          matrix(data=c(0.05, 0,
+                        0, 0.05), 
+                 nrow=2, ncol=2, byrow=TRUE))
+
+# Interactions matrix
+intmat = matrix(data=c(0.0, 0,
+                       0, 0.0), nrow=2, ncol=2, byrow = TRUE)
+
+VE1<- landscapegen(50, 100)
+
+## Experiment 2
+# Define the niche of Service 1
+s1 = list(4, matrix(c(0.3, 0.5)), 
+          matrix(data=c(0.05, 0,
+                        0, 0.05), 
+                 nrow=2, ncol=2, byrow=TRUE))
+# Define the niche of Service 2
+s2 = list(4, matrix(c(0.8, 0.5)), 
+          matrix(data=c(0.05, 0,
+                        0, 0.05), 
+                 nrow=2, ncol=2, byrow=TRUE))
+
+# Interactions matrix
+intmat = matrix(data=c(0.0, 0,
+                       0, 0.0), nrow=2, ncol=2, byrow = TRUE)
+
+VE2<- landscapegen(50, 100)
+
+
+```
+
+These simulations may take a while to run.
+
+We can summarise the ecosystem service outcomes for each landscape and plot patterns across the landscapes. Below, we use the `sapply` function to extract the total ecosystem servce provision for each landscape, and plot the associations between the two ecosystem services in each virtual experiment.
+
+```{r results}
+rVE1<- t(sapply(VE1, function(x){apply(x[,2:3], 2, sum)}))
+rVE2<- t(sapply(VE2, function(x){apply(x[,2:3], 2, sum)}))
+
+par(mfrow=c(1,2))
+  plot(rVE1, main = "Experiment 1 (high overlap)")
+   plot(rVE2, main = "Experiment 2 (low overlap)")
+
+```
+
+As expected, the pair of ecosystem services with higher niche overlap in Experiment 1 showed a more positive association that the pair of ecosystem services with lower niche overlap (Experiment 2). Similar virtual experiments may be performed by manipulating the parameterisation of niche overlap, or the direct interactions between the two services.
+
+
+## Application to real landscapes
+
+Ecosystem service niche models can also be applied to predict values across a real landscape. In the example below, we use an average air temperature and precipitation map to model a hypothetical ecosystem service. 
+
+```{r real}
+data("rainfallMap")
+data("temperatureMap")
+
+# Service 1
+s1 = list(150, matrix(c(30, 100)), 
+          matrix(data=c(15, 2,
+                        2, 90), 
+                 nrow=2, ncol=2, byrow=TRUE))
+
+# Map the niche for Service 1
+mapNiche <- fund.niche(niche.coords = cbind(as.vector(temperatureMap), as.vector(rainfallMap)), 
+                        species = s1)
+mapNiche<- matrix(mapNiche, nrow=nrow(rainfallMap))
+
+
+plot(raster(mapNiche),
+     xlab = "Longitude", ylab = "Latitude", legend.args = list(text='S1'))
+
+
+```
